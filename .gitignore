@@ -1,0 +1,84 @@
+# Environment variables (CRITICAL: Never commit secrets)
+.env
+.env.local
+.env.*.local
+.env.prod
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+.Python
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+matra*.db
+
+# Logs
+*.log
+logs/
+audit.log
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+.cache/
+
+# OS specific
+Thumbs.db
+.DS_Store
+
+# Streamlit
+.streamlit/
+
+# Production builds
+dist/
+build/
+
+# Sensitive files
+secrets/
+credentials/
+keys/
+*.pem
+*.key
+
+# Lock files (for production, uv.lock should be committed)
+# uv.lock  # KEEP THIS - needed for reproducible installs
+
+# Large files
+*.zip
+*.tar.gz
+*.tar
+*.rar
+
+# Node (if frontend uses npm)
+node_modules/
+package-lock.json
+yarn.lock

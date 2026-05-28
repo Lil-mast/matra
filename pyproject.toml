@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "matra"
+version = "0.1.0"
+description = "Maternal health risk triage system with offline-first architecture"
+readme = "BACKEND_SETUP.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Matra Team" }
+]
+
+dependencies = [
+    "Flask==3.1.1",
+    "Flask-SQLAlchemy==3.1.1",
+    "Flask-Cors==5.0.1",
+    "Flask-Limiter==3.5.0",
+    "PyJWT==2.10.1",
+    "bcrypt==4.3.0",
+    "scikit-learn==1.5.0",
+    "pandas==2.2.3",
+    "numpy==2.0.0",
+    "joblib==1.4.2",
+    "gunicorn==23.0.0",
+    "python-dotenv==1.0.0",
+    "streamlit==1.32.0",
+    "plotly==5.18.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.5",
+    "pytest-cov==4.1.0",
+    "black==23.12.1",
+    "isort==5.13.2",
+    "flake8==6.1.0",
+]
+
+[project.urls]
+Homepage = "https://matra.health"
+Repository = "https://github.com/matra-org/matra"
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+python_files = "test_*.py"
+addopts = "--cov=backend --cov-report=html --cov-report=term-missing"

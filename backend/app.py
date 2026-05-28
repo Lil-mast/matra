@@ -19,15 +19,27 @@ Metrics / Admin:
 import datetime
 import functools
 import os
+import logging
 
 import bcrypt
 import jwt
-from flask import Flask, jsonify, request, render_template_string
+from flask import Flask, jsonify, request
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from config import Config
 from models import MaternalIntake, User, db
 from model.triage_model import evaluate_risk
+
+# Configure audit logging
+audit_logger = logging.getLogger("matra.audit")
+audit_handler = logging.StreamHandler()
+audit_handler.setFormatter(logging.Formatter(
+    '%(asctime)s - AUDIT - %(levelname)s - %(message)s'
+))
+audit_logger.addHandler(audit_handler)
+audit_logger.setLevel(logging.INFO)
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -36,7 +48,21 @@ from model.triage_model import evaluate_risk
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    
+    # Rate limiting (CRITICAL for public endpoints)
+    limiter = Limiter(
+        app=app,
+        key_func=get_remote_address,
+        storage_uri=app.config.get("RATELIMIT_STORAGE_URL", "memory://"),
+        default_limits=[]
+    )
+    
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": app.config.get("CORS_ORIGINS", ["*"])}},
+        allow_headers=["Content-Type", "Authorization"],
+        expose_headers=["Content-Type"],
+    )
     db.init_app(app)
 
     with app.app_context():
@@ -128,10 +154,50 @@ def create_app(config_class=Config):
     # ------------------------------------------------------------------
 
     @app.route("/api/assess", methods=["POST"])
+    @limiter.limit(app.config.get("RATELIMIT_DEFAULT", "200/hour"))
     def assess():
-        """Run triage model on a single intake (no auth required — offline use)."""
+        """
+        Run triage model on a single intake.
+        
+        SECURITY NOTE: In production (ASSESS_REQUIRES_AUTH=true), this endpoint
+        requires authentication to prevent abuse. For offline mobile use, provide
+        an API key or JWT token in the Authorization header:
+            Authorization: Bearer <token>
+        
+        If ASSESS_REQUIRES_AUTH is disabled, the endpoint is accessible for 
+        offline-first mobile apps, but is still rate-limited.
+        """
+        # Check if authentication is required
+        if app.config.get("ASSESS_REQUIRES_AUTH", False):
+            token = None
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header.split(" ", 1)[1]
+            if not token:
+                audit_logger.warning(f"Unauthorized assess attempt from {get_remote_address()}")
+                return jsonify({"error": "Authentication required for assess endpoint"}), 401
+            try:
+                payload = jwt.decode(
+                    token, app.config["SECRET_KEY"], algorithms=["HS256"]
+                )
+                current_user = db.session.get(User, payload["sub"])
+                if current_user is None:
+                    raise ValueError("User not found")
+            except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError) as e:
+                audit_logger.warning(f"Invalid token for assess from {get_remote_address()}: {str(e)}")
+                return jsonify({"error": "Invalid or expired token"}), 401
+        
         data = request.get_json(force=True)
         result = evaluate_risk(data)
+        
+        # Log assessment for audit trail (if enabled)
+        if app.config.get("AUDIT_LOG_ENABLED", True):
+            audit_logger.info(
+                f"Assessment: age={data.get('age')}, "
+                f"risk_level={result.get('risk_level')}, "
+                f"remote_addr={get_remote_address()}"
+            )
+        
         return jsonify(result), 200
 
     # ------------------------------------------------------------------
@@ -224,28 +290,8 @@ def create_app(config_class=Config):
         ), 200
 
     # ------------------------------------------------------------------
-    # Admin dashboard (server-rendered)
+    # Admin dashboard is now served via Streamlit (see admin_dashboard.py)
     # ------------------------------------------------------------------
-
-    @app.route("/admin")
-    def admin_dashboard():
-        total = MaternalIntake.query.count()
-        high = MaternalIntake.query.filter_by(risk_level="high").count()
-        intermediate = MaternalIntake.query.filter_by(risk_level="intermediate").count()
-        low = MaternalIntake.query.filter_by(risk_level="low").count()
-        recent = (
-            MaternalIntake.query.order_by(MaternalIntake.created_at.desc())
-            .limit(15)
-            .all()
-        )
-        return render_template_string(
-            ADMIN_TEMPLATE,
-            total=total,
-            high=high,
-            intermediate=intermediate,
-            low=low,
-            recent=recent,
-        )
 
     # ------------------------------------------------------------------
     # Health check
@@ -256,87 +302,3 @@ def create_app(config_class=Config):
         return jsonify({"status": "ok", "service": "matra-api"}), 200
 
     return app
-
-
-# ---------------------------------------------------------------------------
-# Admin HTML template (embedded for single-file simplicity)
-# ---------------------------------------------------------------------------
-
-ADMIN_TEMPLATE = r"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Matra Admin Dashboard</title>
-<style>
-  :root{--bg:#0f1117;--surface:#1a1d27;--card:#22263a;--accent:#4fc3f7;
-  --high:#ef5350;--mid:#ffb74d;--low:#66bb6a;--fg:#e4e6eb;--fg2:#9ea3b0;
-  --radius:12px;--font:'Segoe UI',system-ui,sans-serif}
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{background:var(--bg);color:var(--fg);font-family:var(--font);
-       padding:2rem;min-height:100vh}
-  h1{font-size:1.8rem;margin-bottom:.4rem}
-  .sub{color:var(--fg2);margin-bottom:2rem}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:2rem}
-  .card{background:var(--card);border-radius:var(--radius);padding:1.4rem;
-        text-align:center;border:1px solid rgba(255,255,255,.06)}
-  .card .num{font-size:2.2rem;font-weight:700}
-  .card .label{color:var(--fg2);font-size:.85rem;margin-top:.3rem}
-  .high .num{color:var(--high)} .mid .num{color:var(--mid)} .low .num{color:var(--low)}
-  table{width:100%;border-collapse:collapse;background:var(--surface);
-        border-radius:var(--radius);overflow:hidden}
-  th,td{padding:.75rem 1rem;text-align:left;border-bottom:1px solid rgba(255,255,255,.06)}
-  th{background:var(--card);color:var(--accent);font-size:.8rem;text-transform:uppercase;letter-spacing:.5px}
-  .badge{display:inline-block;padding:.2rem .65rem;border-radius:20px;font-size:.75rem;font-weight:600;color:#fff}
-  .badge.high{background:var(--high)} .badge.intermediate{background:var(--mid);color:#333}
-  .badge.low{background:var(--low);color:#333}
-</style>
-</head>
-<body>
-<h1>🩺 Matra Admin Dashboard</h1>
-<p class="sub">Aggregated anonymized maternal triage metrics</p>
-
-<div class="grid">
-  <div class="card"><div class="num">{{ total }}</div><div class="label">Total Assessments</div></div>
-  <div class="card high"><div class="num">{{ high }}</div><div class="label">High Risk</div></div>
-  <div class="card mid"><div class="num">{{ intermediate }}</div><div class="label">Intermediate</div></div>
-  <div class="card low"><div class="num">{{ low }}</div><div class="label">Low Risk</div></div>
-</div>
-
-<h2 style="margin-bottom:1rem;font-size:1.2rem">Recent Assessments</h2>
-<table>
-<thead><tr>
-  <th>ID</th><th>Age</th><th>BP</th><th>Pulse</th><th>Bleeding</th>
-  <th>Risk</th><th>Action</th><th>Date</th>
-</tr></thead>
-<tbody>
-{% for r in recent %}
-<tr>
-  <td>{{ r.id }}</td>
-  <td>{{ r.age }}</td>
-  <td>{{ r.systolic_bp }}/{{ r.diastolic_bp }}</td>
-  <td>{{ r.pulse }}</td>
-  <td>{{ r.bleeding }}</td>
-  <td><span class="badge {{ r.risk_level }}">{{ r.risk_level }}</span></td>
-  <td>{{ r.recommended_action }}</td>
-  <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '-' }}</td>
-</tr>
-{% endfor %}
-{% if not recent %}
-<tr><td colspan="8" style="text-align:center;color:var(--fg2)">No assessments yet</td></tr>
-{% endif %}
-</tbody>
-</table>
-</body>
-</html>
-"""
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-app = create_app()
-
-if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
