@@ -12,6 +12,7 @@ refines intermediate vs. low when no absolute danger sign is present.
 import os
 import numpy as np
 
+
 _MODEL_PATH = os.path.join(os.path.dirname(__file__), "model.joblib")
 _ml_model = None  # lazy-loaded
 
