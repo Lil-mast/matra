@@ -1,4 +1,4 @@
-# Synthea Integration Guide
+# Synthea Integration Guidell
 
 This guide explains how to generate synthetic maternal health records using Synthea, transform outputs into a CSV matching this project's intake schema, and integrate the synthetic data into the model training and tests.
 

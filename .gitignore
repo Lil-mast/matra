@@ -68,6 +68,7 @@ credentials/
 keys/
 *.pem
 *.key
+wheels/
 
 # Lock files (for production, uv.lock should be committed)
 # uv.lock  # KEEP THIS - needed for reproducible installs
@@ -83,5 +84,6 @@ output/
 node_modules/
 package-lock.json
 yarn.lock
+tools/synthea.jar
 
 uv.lock
