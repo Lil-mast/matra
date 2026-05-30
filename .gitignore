@@ -84,6 +84,7 @@ output/
 node_modules/
 package-lock.json
 yarn.lock
-tools/synthea.jar
+
 
 uv.lock
+tools/synthea.jar
