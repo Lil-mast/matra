@@ -77,8 +77,11 @@ keys/
 *.tar.gz
 *.tar
 *.rar
+output/
 
 # Node (if frontend uses npm)
 node_modules/
 package-lock.json
 yarn.lock
+
+uv.lock
