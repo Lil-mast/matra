@@ -29,6 +29,20 @@ import joblib
 SEED = 42
 N_SAMPLES = 5_000
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "model.joblib")
+SYNTHETIC_DATA_CSV = os.path.join(os.path.dirname(__file__), "data", "synthetic_maternal.csv")
+REFERRAL_TO_RISK = {
+    "no_referral": 0,
+    "routine_referral": 0,
+    "urgent_referral": 1,
+    "emergency_referral": 2,
+}
+CSV_FEATURE_RENAME = {
+    "anemia_signs": "anemia",
+}
+FEATURE_COLS = [
+    "age", "parity", "systolic_bp", "diastolic_bp", "pulse",
+    "bleeding", "fever", "convulsions", "reduced_fetal_movement", "anemia",
+]
 
 np.random.seed(SEED)
 
@@ -109,17 +123,44 @@ def _generate_synthetic_data(n: int = N_SAMPLES) -> pd.DataFrame:
     return df
 
 
+def _load_training_data() -> pd.DataFrame:
+    """Load the synthetic maternal dataset if available, otherwise generate it."""
+    if os.path.exists(SYNTHETIC_DATA_CSV):
+        print(f"Loading synthetic training data from {SYNTHETIC_DATA_CSV}")
+        df = pd.read_csv(SYNTHETIC_DATA_CSV)
+        df = df.rename(columns=CSV_FEATURE_RENAME)
+
+        if "referral_label" in df.columns and "risk_label" not in df.columns:
+            df["risk_label"] = df["referral_label"].map(REFERRAL_TO_RISK)
+
+        expected = FEATURE_COLS + ["risk_label"]
+        missing = [c for c in expected if c not in df.columns]
+        if missing:
+            raise ValueError(
+                f"Synthetic maternal dataset is missing expected columns: {missing}"
+            )
+
+        if df[FEATURE_COLS].isna().any().any():
+            missing = df[FEATURE_COLS].isna().any(axis=1).sum()
+            print(
+                f"⚠️  Dropping {missing} synthetic rows with missing required features."
+            )
+            df = df.dropna(subset=FEATURE_COLS)
+
+        if df.empty:
+            raise ValueError("No valid training rows remain after dropping incomplete synthetic data.")
+
+        return df
+
+    print("Synthetic data CSV not found; generating synthetic data.")
+    return _generate_synthetic_data()
+
+
 def train():
     """Train the logistic-regression model and persist to disk."""
-    print("Generating synthetic maternal health data …")
-    df = _generate_synthetic_data()
+    df = _load_training_data()
 
-    feature_cols = [
-        "age", "parity", "systolic_bp", "diastolic_bp", "pulse",
-        "bleeding", "fever", "convulsions", "reduced_fetal_movement", "anemia",
-    ]
-
-    X = df[feature_cols].values
+    X = df[FEATURE_COLS].values
     y = df["risk_label"].values
 
     X_train, X_test, y_train, y_test = train_test_split(

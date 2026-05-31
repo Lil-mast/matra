@@ -61,9 +61,9 @@ For `referral_label`, you can derive labels using WHO-like rules (e.g., any seve
 
 6. Use dataset in repo
 
-- Place `synthetic_maternal.csv` in `model/data/`.
-- Update `model/train.py` to read `model/data/synthetic_maternal.csv` when present.
-- Add a small unit test under `tests/` to assert the generator script produces expected columns.
+- Place `synthetic_maternal.csv` in `backend/model/data/`.
+- Update `backend/model/train.py` to read `backend/model/data/synthetic_maternal.csv` when present.
+- Add a small unit test under `backend/tests/` to assert the generator script produces expected columns.
 
 ## Tuning and realistic distributions
 
@@ -82,4 +82,4 @@ For `referral_label`, you can derive labels using WHO-like rules (e.g., any seve
 
 ---
 
-Next steps: run Synthea, run the transformation script, and integrate `model/generate_synthetic.py` into the repo. If you want, I can add the generator script and wiring to `model/train.py` now.
+Next steps: run Synthea, run the transformation script at `backend/scripts/generate_synthetic_material.py`, and integrate the generated CSV into `backend/model/train.py`. If you want, I can add the generator script and wiring to `backend/model/train.py` now.
