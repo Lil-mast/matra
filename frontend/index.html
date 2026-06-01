@@ -152,12 +152,9 @@
                 <a class="text-on-surface-variant font-label-md hover:text-primary transition-colors duration-200" href="/triage" data-nav>Triage Form</a>
             </nav>
             <div class="flex items-center gap-4">
-                <div id="sync-status" class="hidden items-center gap-2 text-label-sm font-label-sm text-on-surface-variant">
-                    <span class="w-2 h-2 rounded-full bg-secondary" id="sync-indicator"></span>
-                    <span id="sync-text">Online</span>
-                </div>
-                <button id="sync-btn" class="hidden bg-secondary-container text-on-secondary-container font-label-md rounded-lg px-4 py-2 hover:opacity-90 transition-all duration-150 shadow-sm flex items-center gap-2">
-                    <span class="material-symbols-outlined text-sm">sync</span> Sync
+                <a class="hidden md:block text-on-surface-variant font-label-md hover:text-primary transition-colors duration-200" href="/login" data-nav id="auth-link">Login</a>
+                <button id="logout-btn" class="hidden bg-surface-variant text-on-surface-variant font-label-md rounded-lg px-4 py-2 hover:opacity-90 transition-all duration-150 shadow-sm flex items-center gap-2">
+                    <span class="material-symbols-outlined text-sm">logout</span> Logout
                 </button>
             </div>
         </div>

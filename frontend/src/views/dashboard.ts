@@ -1,8 +1,27 @@
-import { getAllAssessments } from '../db';
+import { db, auth } from '../firebase';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 
 export async function getDashboardView() {
-    const assessments = await getAllAssessments();
-    const offlineCount = assessments.filter((a: any) => !a.synced).length;
+    if (!auth.currentUser) return '';
+
+    let assessments: any[] = [];
+    try {
+        const q = query(
+            collection(db, "assessments"), 
+            where("userId", "==", auth.currentUser.uid),
+            orderBy("createdAt", "desc")
+        );
+        const querySnapshot = await getDocs(q);
+        querySnapshot.forEach((doc) => {
+            assessments.push({ id: doc.id, ...doc.data() });
+        });
+    } catch (e: any) {
+        // If offline and index not cached, it might fail or return from cache
+        console.error("Error fetching assessments: ", e);
+    }
+    
+    // In Firestore offline mode with getDocs, it will fetch from local cache if offline.
+    // The concept of 'pending sync' is handled transparently by Firestore. We won't try to manually calculate it here.
     const highRiskCount = assessments.filter((a: any) => a.risk_level === 'high').length;
     
     let listHTML = '';
@@ -10,22 +29,21 @@ export async function getDashboardView() {
     if (assessments.length === 0) {
         listHTML = '<div class="p-4 text-on-surface-variant text-center">No assessments found.</div>';
     } else {
-        // Reverse to show newest first
-        assessments.slice().reverse().forEach((a: any) => {
-            const date = new Date(a.timestamp).toLocaleString();
+        assessments.forEach((a: any) => {
+            // Firestore serverTimestamp might be null when pending offline sync
+            const date = a.createdAt ? new Date(a.createdAt.toDate()).toLocaleString() : 'Pending Sync...';
             const badgeColor = a.risk_level === 'high' ? 'bg-error-container text-on-error-container' : 
                                (a.risk_level === 'intermediate' ? 'bg-tertiary-container text-on-tertiary-container' : 'bg-secondary-container text-on-secondary-container');
-            const syncIcon = a.synced ? '<span class="material-symbols-outlined text-secondary text-sm" title="Synced">cloud_done</span>' : '<span class="material-symbols-outlined text-outline text-sm" title="Offline">cloud_off</span>';
             
             listHTML += `
             <div class="flex items-center justify-between p-4 border-b border-outline-variant/50 hover:bg-surface-container-lowest transition-colors">
                 <div class="flex items-center gap-4">
                     <div class="w-10 h-10 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant font-bold text-sm">
-                        ${syncIcon}
+                        <span class="material-symbols-outlined text-outline text-sm">assignment</span>
                     </div>
                     <div>
-                        <p class="text-label-md font-label-md text-on-surface">Assessment #${a.id}</p>
-                        <p class="text-body-sm font-body-sm text-on-surface-variant">Age: ${a.age} • ${date}</p>
+                        <p class="text-label-md font-label-md text-on-surface">Age: ${a.age}</p>
+                        <p class="text-body-sm font-body-sm text-on-surface-variant">${date}</p>
                     </div>
                 </div>
                 <div class="flex flex-col items-end gap-1">
@@ -53,7 +71,7 @@ export async function getDashboardView() {
                 
                 <!-- Main Content Area -->
                 <div class="lg:col-span-4 flex flex-col gap-lg">
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-md">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-md">
                         <div class="bg-surface p-md rounded-xl card-shadow border-l-4 border-error">
                             <p class="text-label-sm font-label-sm text-on-surface-variant mb-1">High Risk Alerts</p>
                             <p class="text-headline-md font-headline-md text-on-surface">${highRiskCount}</p>
@@ -61,10 +79,6 @@ export async function getDashboardView() {
                         <div class="bg-surface p-md rounded-xl card-shadow border-l-4 border-secondary">
                             <p class="text-label-sm font-label-sm text-on-surface-variant mb-1">Total Assessments</p>
                             <p class="text-headline-md font-headline-md text-on-surface">${assessments.length}</p>
-                        </div>
-                        <div class="bg-surface p-md rounded-xl card-shadow border-l-4 border-outline">
-                            <p class="text-label-sm font-label-sm text-on-surface-variant mb-1">Pending Sync</p>
-                            <p class="text-headline-md font-headline-md text-on-surface">${offlineCount}</p>
                         </div>
                     </div>
                     

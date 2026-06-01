@@ -1,0 +1,14 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /assessments/{assessmentId} {
+      // Allow users to read and create assessments only if they are logged in
+      // and their uid matches the userId in the document.
+      allow read, create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      
+      // Allow update and delete only if they own the document
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+  }
+}

@@ -1,4 +1,34 @@
+import { db, auth } from '../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { router, showToast } from '../main';
+
+// Basic client-side triage logic (mimics backend for immediate feedback)
+function evaluateRisk(data: any): { risk_level: 'high' | 'intermediate' | 'low', recommended_action: string } {
+    let score = 0;
+    
+    if (data.convulsions || data.bleeding == 2 || data.systolic_bp >= 160 || data.diastolic_bp >= 110) {
+        return { risk_level: 'high', recommended_action: 'IMMEDIATE REFERRAL TO HOSPITAL' };
+    }
+    
+    if (data.fever) score += 2;
+    if (data.reduced_fetal_movement) score += 2;
+    if (data.bleeding == 1) score += 2;
+    if (data.anemia) score += 1;
+    if (data.systolic_bp >= 140 || data.diastolic_bp >= 90) score += 2;
+    if (data.pulse > 100) score += 1;
+    
+    if (score >= 3) {
+        return { risk_level: 'high', recommended_action: 'REFER TO HOSPITAL' };
+    } else if (score >= 1) {
+        return { risk_level: 'intermediate', recommended_action: 'OBSERVE AND REASSESS IN 4 HOURS' };
+    }
+    
+    return { risk_level: 'low', recommended_action: 'ROUTINE ANTENATAL CARE' };
+}
+
 export function getTriageView() {
+    setTimeout(setupTriageForm, 0); // Setup after render
+
     return `
     <section class="py-xl px-gutter bg-surface-container-lowest min-h-screen flex items-center justify-center">
         <div class="max-w-xl w-full bg-surface rounded-2xl shadow-xl border border-outline-variant p-lg">
@@ -7,7 +37,7 @@ export function getTriageView() {
                     <span class="material-symbols-outlined text-primary">edit_document</span>
                     New Triage Assessment
                 </h2>
-                <p class="text-body-sm font-body-sm text-on-surface-variant mt-1">Data is saved locally when offline.</p>
+                <p class="text-body-sm font-body-sm text-on-surface-variant mt-1">Data is securely synced to Firestore.</p>
             </div>
             
             <form id="triage-form" class="flex flex-col gap-md">
@@ -82,4 +112,53 @@ export function getTriageView() {
         </div>
     </section>
     `;
+}
+
+function setupTriageForm() {
+    const form = document.getElementById('triage-form') as HTMLFormElement;
+    if (!form) return;
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        if (!auth.currentUser) {
+            showToast('You must be logged in', true);
+            return;
+        }
+
+        const formData = new FormData(form);
+        const data = {
+            age: parseInt(formData.get('age') as string) || 0,
+            parity: parseInt(formData.get('parity') as string) || 0,
+            systolic_bp: parseInt(formData.get('systolic_bp') as string) || 0,
+            diastolic_bp: parseInt(formData.get('diastolic_bp') as string) || 0,
+            pulse: parseInt(formData.get('pulse') as string) || 0,
+            bleeding: parseInt(formData.get('bleeding') as string) || 0,
+            fever: formData.get('fever') === 'on',
+            convulsions: formData.get('convulsions') === 'on',
+            reduced_fetal_movement: formData.get('reduced_fetal_movement') === 'on',
+            anemia: formData.get('anemia') === 'on',
+        };
+
+        if (data.age <= 0 || data.systolic_bp <= 0 || data.diastolic_bp <= 0) {
+            showToast('Please provide valid numbers for Age and Vitals', true);
+            return;
+        }
+
+        const evalResult = evaluateRisk(data);
+
+        try {
+            await addDoc(collection(db, "assessments"), {
+                ...data,
+                ...evalResult,
+                userId: auth.currentUser.uid,
+                createdAt: serverTimestamp()
+            });
+            showToast(`Assessment saved. Risk: ${evalResult.risk_level.toUpperCase()}`);
+            router.navigate('/dashboard');
+        } catch (err: any) {
+            showToast('Error saving assessment', true);
+            console.error(err);
+        }
+    });
 }
