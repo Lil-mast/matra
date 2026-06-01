@@ -1,13 +1,206 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>Matra Health | Maternal-Risk Early-Warning</title>
+    <!-- PWA Manifest -->
+    <meta name="theme-color" content="#f3faff">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
-  </head>
-  <body>
-    <div id="app"></div>
+    <link rel="apple-touch-icon" href="/favicon.svg">
+    
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "background": "#f3faff",
+                        "surface-variant": "#c6e8f8",
+                        "surface-bright": "#f3faff",
+                        "surface-container-highest": "#c6e8f8",
+                        "primary-fixed-dim": "#6fd8c8",
+                        "tertiary": "#a03b21",
+                        "outline": "#6d7a77",
+                        "tertiary-container": "#c05237",
+                        "surface-tint": "#006a60",
+                        "on-tertiary-fixed-variant": "#83260e",
+                        "on-secondary": "#ffffff",
+                        "on-tertiary-container": "#fffbff",
+                        "primary": "#00685d",
+                        "on-surface-variant": "#3d4947",
+                        "on-secondary-fixed": "#012201",
+                        "secondary-fixed": "#c5eeb5",
+                        "outline-variant": "#bcc9c6",
+                        "on-primary-container": "#f4fffb",
+                        "on-tertiary-fixed": "#3c0700",
+                        "on-secondary-fixed-variant": "#2d4f25",
+                        "tertiary-fixed-dim": "#ffb4a2",
+                        "surface-container-high": "#ccedfe",
+                        "on-error-container": "#93000a",
+                        "on-background": "#001f29",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-fixed-variant": "#005048",
+                        "surface-container-low": "#e6f6ff",
+                        "error": "#ba1a1a",
+                        "primary-container": "#008376",
+                        "on-surface": "#001f29",
+                        "error-container": "#ffdad6",
+                        "on-primary-fixed": "#00201c",
+                        "on-tertiary": "#ffffff",
+                        "inverse-on-surface": "#dff4ff",
+                        "surface-container": "#d8f2ff",
+                        "secondary-container": "#c2ebb2",
+                        "primary-fixed": "#8cf5e4",
+                        "on-error": "#ffffff",
+                        "tertiary-fixed": "#ffdad2",
+                        "surface-dim": "#bedfef",
+                        "secondary-fixed-dim": "#a9d29b",
+                        "on-primary": "#ffffff",
+                        "surface": "#f3faff",
+                        "secondary": "#44673a",
+                        "on-secondary-container": "#486b3e",
+                        "inverse-surface": "#123441",
+                        "inverse-primary": "#6fd8c8"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "unit": "8px",
+                        "sm": "8px",
+                        "xl": "32px",
+                        "2xl": "48px",
+                        "lg": "24px",
+                        "container-max": "1280px",
+                        "xs": "4px",
+                        "md": "16px",
+                        "gutter": "24px",
+                        "3xl": "64px"
+                    },
+                    "fontFamily": {
+                        "headline-sm": ["Inter"],
+                        "label-md": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "label-md": ["14px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .card-shadow { box-shadow: 0px 2px 4px rgba(38, 70, 83, 0.05); }
+        .hover-shadow:hover { box-shadow: 0px 8px 16px rgba(38, 70, 83, 0.08); }
+        .glass-panel { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.3); }
+        
+        /* Toast notification styles */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #001f29;
+            color: #ffffff;
+            padding: 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0px 4px 12px rgba(0,0,0,0.15);
+            z-index: 1000;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md antialiased overflow-x-hidden flex flex-col min-h-screen">
+    <!-- Top Navigation -->
+    <header class="bg-surface dark:bg-inverse-surface border-b border-outline-variant shadow-sm docked full-width top-0 sticky z-50">
+        <div class="flex justify-between items-center w-full px-gutter max-w-container-max mx-auto h-16">
+            <div class="flex items-center gap-4 cursor-pointer" data-nav="/">
+                <img alt="Matra Logo" class="h-8 w-auto" src="/src/assets/logo.png"/>
+                <span class="text-headline-md font-headline-md font-bold text-primary dark:text-inverse-primary hidden md:block">Matra</span>
+            </div>
+            <nav class="hidden md:flex gap-8" id="main-nav">
+                <a class="text-on-surface-variant font-label-md hover:text-primary transition-colors duration-200" href="/" data-nav>Home</a>
+                <a class="text-on-surface-variant font-label-md hover:text-primary transition-colors duration-200" href="/dashboard" data-nav>Dashboard</a>
+                <a class="text-on-surface-variant font-label-md hover:text-primary transition-colors duration-200" href="/triage" data-nav>Triage Form</a>
+            </nav>
+            <div class="flex items-center gap-4">
+                <div id="sync-status" class="hidden items-center gap-2 text-label-sm font-label-sm text-on-surface-variant">
+                    <span class="w-2 h-2 rounded-full bg-secondary" id="sync-indicator"></span>
+                    <span id="sync-text">Online</span>
+                </div>
+                <button id="sync-btn" class="hidden bg-secondary-container text-on-secondary-container font-label-md rounded-lg px-4 py-2 hover:opacity-90 transition-all duration-150 shadow-sm flex items-center gap-2">
+                    <span class="material-symbols-outlined text-sm">sync</span> Sync
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main id="app" class="flex-grow">
+        <!-- Content will be injected here by Navigo -->
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-inverse-surface text-inverse-on-surface py-2xl px-gutter border-t border-outline-variant/20 mt-auto">
+        <div class="max-w-container-max mx-auto grid grid-cols-1 md:grid-cols-4 gap-xl">
+            <div class="col-span-1 md:col-span-2">
+                <div class="flex items-center gap-3 mb-md">
+                    <img alt="Matra Logo" class="h-8 w-auto brightness-0 invert opacity-90" src="/src/assets/logo.png"/>
+                    <span class="text-headline-md font-headline-md font-bold text-inverse-primary">Matra</span>
+                </div>
+                <p class="text-body-sm font-body-sm text-inverse-on-surface/70 max-w-sm mb-lg">
+                    Empowering safer motherhood through real-time risk assessment and clinical-grade early warning systems.
+                </p>
+            </div>
+            <div>
+                <h4 class="text-label-md font-label-md text-inverse-primary mb-md tracking-wider uppercase">Platform</h4>
+                <ul class="flex flex-col gap-3">
+                    <li><a class="text-body-sm font-body-sm text-inverse-on-surface/80 hover:text-inverse-primary transition-colors" href="/dashboard" data-nav>Dashboard</a></li>
+                    <li><a class="text-body-sm font-body-sm text-inverse-on-surface/80 hover:text-inverse-primary transition-colors" href="/triage" data-nav>Triage Form</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4 class="text-label-md font-label-md text-inverse-primary mb-md tracking-wider uppercase">Legal</h4>
+                <ul class="flex flex-col gap-3">
+                    <li><a class="text-body-sm font-body-sm text-inverse-on-surface/80 hover:text-inverse-primary transition-colors" href="#">Privacy Policy</a></li>
+                    <li><a class="text-body-sm font-body-sm text-inverse-on-surface/80 hover:text-inverse-primary transition-colors" href="#">Terms of Service</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="max-w-container-max mx-auto mt-2xl pt-lg border-t border-outline/20 text-center text-body-sm font-body-sm text-inverse-on-surface/50">
+            © 2026 Matra Health. All rights reserved.
+        </div>
+    </footer>
+
+    <div id="toast" class="toast"></div>
+
     <script type="module" src="/src/main.ts"></script>
-  </body>
+</body>
 </html>

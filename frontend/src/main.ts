@@ -1,60 +1,155 @@
-import './style.css'
-import typescriptLogo from './assets/typescript.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import { setupCounter } from './counter.ts'
+import Navigo from 'navigo';
+import { getLandingView } from './views/landing';
+import { getDashboardView } from './views/dashboard';
+import { getTriageView } from './views/triage';
+import { saveAssessment, getOfflineAssessments, markAsSynced } from './db';
+import { registerSW } from 'virtual:pwa-register';
 
-document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-<section id="center">
-  <div class="hero">
-    <img src="${heroImg}" class="base" width="170" height="179">
-    <img src="${typescriptLogo}" class="framework" alt="TypeScript logo"/>
-    <img src="${viteLogo}" class="vite" alt="Vite logo" />
-  </div>
-  <div>
-    <h1>Get started</h1>
-    <p>Edit <code>src/main.ts</code> and save to test <code>HMR</code></p>
-  </div>
-  <button id="counter" type="button" class="counter"></button>
-</section>
+// Initialize router
+const router = new Navigo('/');
+const appDiv = document.getElementById('app')!;
 
-<div class="ticks"></div>
+// Setup PWA
+// @ts-ignore
+const updateSW = registerSW({
+  onNeedRefresh() {
+    showToast('New update available. Refresh to update.');
+  },
+  onOfflineReady() {
+    showToast('App ready to work offline');
+  },
+});
 
-<section id="next-steps">
-  <div id="docs">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg>
-    <h2>Documentation</h2>
-    <p>Your questions, answered</p>
-    <ul>
-      <li>
-        <a href="https://vite.dev/" target="_blank">
-          <img class="logo" src="${viteLogo}" alt="" />
-          Explore Vite
-        </a>
-      </li>
-      <li>
-        <a href="https://www.typescriptlang.org" target="_blank">
-          <img class="button-icon" src="${typescriptLogo}" alt="">
-          Learn more
-        </a>
-      </li>
-    </ul>
-  </div>
-  <div id="social">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg>
-    <h2>Connect with us</h2>
-    <p>Join the Vite community</p>
-    <ul>
-      <li><a href="https://github.com/vitejs/vite" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#github-icon"></use></svg>GitHub</a></li>
-      <li><a href="https://chat.vite.dev/" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg>Discord</a></li>
-      <li><a href="https://x.com/vite_js" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg>X.com</a></li>
-      <li><a href="https://bsky.app/profile/vite.dev" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg>Bluesky</a></li>
-    </ul>
-  </div>
-</section>
+// Toast notification
+function showToast(message: string, isError = false) {
+    const toast = document.getElementById('toast');
+    if (toast) {
+        toast.textContent = message;
+        toast.style.backgroundColor = isError ? '#ba1a1a' : '#001f29';
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+}
 
-<div class="ticks"></div>
-<section id="spacer"></section>
-`
+// Router config
+router
+  .on('/', () => {
+    appDiv.innerHTML = getLandingView();
+  })
+  .on('/dashboard', async () => {
+    appDiv.innerHTML = await getDashboardView();
+  })
+  .on('/triage', () => {
+    appDiv.innerHTML = getTriageView();
+    setupTriageForm();
+  })
+  .resolve();
 
-setupCounter(document.querySelector<HTMLButtonElement>('#counter')!)
+// Catch all nav links
+document.body.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    const link = target.closest('a[data-nav]') || target.closest('div[data-nav]');
+    if (link) {
+        e.preventDefault();
+        const href = link.getAttribute('href') || link.getAttribute('data-nav');
+        if (href) router.navigate(href);
+    }
+});
+
+function setupTriageForm() {
+    const form = document.getElementById('triage-form') as HTMLFormElement;
+    if (!form) return;
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        const data = {
+            age: parseInt(formData.get('age') as string),
+            parity: parseInt(formData.get('parity') as string),
+            systolic_bp: parseInt(formData.get('systolic_bp') as string),
+            diastolic_bp: parseInt(formData.get('diastolic_bp') as string),
+            pulse: parseInt(formData.get('pulse') as string),
+            bleeding: parseInt(formData.get('bleeding') as string),
+            fever: formData.get('fever') === 'on',
+            convulsions: formData.get('convulsions') === 'on',
+            reduced_fetal_movement: formData.get('reduced_fetal_movement') === 'on',
+            anemia: formData.get('anemia') === 'on',
+        };
+
+        try {
+            const result = await saveAssessment(data);
+            showToast(`Assessment saved locally. Risk: ${result.risk_level.toUpperCase()}`);
+            router.navigate('/dashboard');
+        } catch (err) {
+            showToast('Error saving assessment', true);
+            console.error(err);
+        }
+    });
+}
+
+// Sync Logic
+const syncStatusText = document.getElementById('sync-text');
+const syncIndicator = document.getElementById('sync-indicator');
+const syncBtn = document.getElementById('sync-btn');
+const syncContainer = document.getElementById('sync-status');
+
+function updateOnlineStatus() {
+    if (navigator.onLine) {
+        syncStatusText!.textContent = 'Online';
+        syncIndicator!.className = 'w-2 h-2 rounded-full bg-primary';
+        syncBtn!.classList.remove('hidden');
+    } else {
+        syncStatusText!.textContent = 'Offline';
+        syncIndicator!.className = 'w-2 h-2 rounded-full bg-error';
+        syncBtn!.classList.add('hidden');
+    }
+    syncContainer!.classList.remove('hidden');
+}
+
+window.addEventListener('online', updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+updateOnlineStatus();
+
+syncBtn?.addEventListener('click', async () => {
+    if (!navigator.onLine) return;
+    
+    try {
+        syncBtn.classList.add('opacity-50', 'pointer-events-none');
+        syncBtn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">sync</span> Syncing...';
+        
+        const offlineData = await getOfflineAssessments();
+        if (offlineData.length === 0) {
+            showToast('Everything is up to date.');
+            return;
+        }
+
+        // Mock sync to backend (In a real app, POST to /api/sync)
+        /*
+        const res = await fetch('/api/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(offlineData)
+        });
+        if (!res.ok) throw new Error('Sync failed');
+        */
+
+        // Simulate network delay
+        await new Promise((r: any) => setTimeout(r, 1000));
+        
+        const syncedIds = offlineData.map((r: any) => r.id!);
+        await markAsSynced(syncedIds);
+        
+        showToast(`Successfully synced ${syncedIds.length} records.`);
+        
+        // Refresh dashboard if we are on it
+        if (window.location.pathname === '/dashboard') {
+            appDiv.innerHTML = await getDashboardView();
+        }
+
+    } catch (err) {
+        showToast('Sync failed', true);
+    } finally {
+        syncBtn.classList.remove('opacity-50', 'pointer-events-none');
+        syncBtn.innerHTML = '<span class="material-symbols-outlined text-sm">sync</span> Sync';
+    }
+});
