@@ -35,6 +35,15 @@ class Config:
     RATELIMIT_STORAGE_URL = os.environ.get("REDIS_URL", "memory://")
     RATELIMIT_DEFAULT = os.environ.get("RATELIMIT_DEFAULT", "200/hour")
     
+    # Voice agent configuration
+    OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+    OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3")
+    VOICE_STT_MODEL = os.environ.get("VOICE_STT_MODEL", "openai/whisper-small")
+    VOICE_STT_DEVICE = os.environ.get("VOICE_STT_DEVICE", "cpu")
+    ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+    ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "Rachel")
+    VOICE_SESSION_TIMEOUT_SECONDS = int(os.environ.get("VOICE_SESSION_TIMEOUT_SECONDS", "3600"))
+
     # Health Data Security (GDPR/HIPAA compliance)
     ENCRYPT_DATABASE = os.environ.get("ENCRYPT_DATABASE", "true").lower() == "true"
     AUDIT_LOG_ENABLED = os.environ.get("AUDIT_LOG_ENABLED", "true").lower() == "true"

@@ -16,20 +16,28 @@ Metrics / Admin:
     GET  /admin             — server-rendered admin dashboard page
 """
 
+import base64
 import datetime
 import functools
+import io
+import json
 import os
 import logging
+import re
+import tempfile
+import uuid
 
 import bcrypt
 import jwt
-from flask import Flask, jsonify, request
+import requests
+from flask import Flask, jsonify, request, abort
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from faster_whisper import WhisperModel
 
 from config import Config
-from models import MaternalIntake, User, db
+from models import MaternalIntake, User, VoiceSession, db
 from model.triage_model import evaluate_risk
 
 # Configure audit logging
@@ -69,7 +77,244 @@ def create_app(config_class=Config):
         db.create_all()
 
     # ------------------------------------------------------------------
-    # Auth helpers
+    # Voice agent helpers
+    # ------------------------------------------------------------------
+
+    app.voice_model = WhisperModel(
+        app.config["VOICE_STT_MODEL"],
+        device=app.config.get("VOICE_STT_DEVICE", "cpu")
+    )
+
+    def cleanup_voice_sessions():
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+            seconds=app.config.get("VOICE_SESSION_TIMEOUT_SECONDS", 3600)
+        )
+        VoiceSession.query.filter(VoiceSession.last_seen < cutoff).delete(synchronize_session=False)
+        db.session.commit()
+
+    def generate_session_id():
+        for _ in range(5):
+            session_id = str(uuid.uuid4())
+            if VoiceSession.query.get(session_id) is None:
+                return session_id
+        raise RuntimeError("Unable to generate a unique voice session ID")
+
+    def get_voice_session(session_id, current_user):
+        cleanup_voice_sessions()
+        session = VoiceSession.query.get(session_id)
+        if session is None:
+            abort(404, description="Voice session not found")
+        if session.user_id != current_user.id:
+            abort(403, description="Not authorized to access this voice session")
+        session.last_seen = datetime.datetime.now(datetime.timezone.utc)
+        db.session.commit()
+        return session
+
+    def redact_pii(text):
+        if not isinstance(text, str):
+            return text
+        patterns = [
+            r"\b(name|patient name|full name)\b[: ]*[^.,;\n]+",
+            r"\b(national id|national ID|ssn|social security number|passport number)\b[: ]*[^.,;\n]+",
+            r"\b(phone|telephone|mobile)\b[: ]*\+?[0-9\-\s()]+",
+            r"\b(email)\b[: ]*[^\s@]+@[^\s@]+"
+        ]
+        cleaned = text
+        for pattern in patterns:
+            cleaned = re.sub(pattern, "[REDACTED]", cleaned, flags=re.I)
+        return cleaned
+
+    def extract_json_payload(text):
+        json_text = None
+        json_match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.S)
+        if json_match:
+            json_text = json_match.group(1)
+        else:
+            brace_match = re.search(r"(\{\s*[\s\S]*\})", text)
+            if brace_match:
+                json_text = brace_match.group(1)
+
+        if not json_text:
+            return None
+
+        try:
+            return json.loads(json_text)
+        except json.JSONDecodeError:
+            return None
+
+    def transcribe_audio(audio_file_path):
+        result = app.voice_model.transcribe(audio_file_path)
+        return " ".join([segment.text.strip() for segment in result])
+
+    def call_ollama(messages):
+        payload = {
+            "model": app.config.get("OLLAMA_MODEL", "llama3"),
+            "messages": messages,
+            "stream": False
+        }
+        response = requests.post(
+            f"{app.config.get('OLLAMA_URL')}/api/chat",
+            json=payload,
+            timeout=60
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["message"]["content"]
+
+    def generate_voice_audio(text):
+        api_key = app.config.get("ELEVENLABS_API_KEY")
+        voice_id = app.config.get("ELEVENLABS_VOICE_ID")
+        if not api_key:
+            raise RuntimeError("ELEVENLABS_API_KEY is not configured")
+
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+        headers = {
+            "xi-api-key": api_key,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "text": text,
+            "voice_settings": {
+                "stability": 0.75,
+                "similarity_boost": 0.75
+            }
+        }
+        response = requests.post(url, json=payload, headers=headers, timeout=60)
+        response.raise_for_status()
+        return base64.b64encode(response.content).decode("utf-8")
+
+    def build_voice_prompt(transcript, history):
+        system_prompt = (
+            "You are an empathetic maternal health assistant. "
+            "Use the user transcription to ask one focused triage question at a time. "
+            "Extract the following fields when provided: age, parity, systolic_bp, diastolic_bp, pulse, fever, bleeding, convulsions, reduced_fetal_movement, anemia. "
+            "You may ask follow-up questions to complete missing triage values. "
+            "At the end of your response, if any triage fields were collected or updated, include a JSON object in triple backticks with keys:"
+            " age, parity, systolic_bp, diastolic_bp, pulse, bleeding, fever, convulsions, reduced_fetal_movement, anemia. "
+            "Do not diagnose. Keep responses short, empathetic, and clinically safe."
+        )
+        messages = [
+            {"role": "system", "content": system_prompt}
+        ]
+        messages.extend(history)
+        messages.append({"role": "user", "content": transcript})
+        return messages
+
+    def extract_form_fields_from_response(response_text):
+        extracted = extract_json_payload(response_text)
+        if not isinstance(extracted, dict):
+            return None
+        field_map = {
+            "age": int,
+            "parity": int,
+            "systolic_bp": int,
+            "diastolic_bp": int,
+            "pulse": int,
+            "bleeding": int,
+            "fever": bool,
+            "convulsions": bool,
+            "reduced_fetal_movement": bool,
+            "anemia": bool
+        }
+        result = {}
+        for key, cast in field_map.items():
+            if key in extracted:
+                try:
+                    value = extracted[key]
+                    if cast is bool:
+                        result[key] = bool(value)
+                    else:
+                        result[key] = cast(value)
+                except (ValueError, TypeError):
+                    continue
+        return result
+
+    def maybe_add_risk_fields(extracted):
+        if not extracted:
+            return extracted
+        try:
+            risk = evaluate_risk(extracted)
+            extracted["risk_level"] = risk.get("risk_level")
+            extracted["recommended_action"] = risk.get("recommended_action")
+        except Exception as exc:
+            audit_logger.error("Risk evaluation failed: %s", str(exc))
+        return extracted
+
+    @app.route("/api/voice/session", methods=["POST"])
+    @token_required
+    def create_voice_session(current_user):
+        session_id = generate_session_id()
+        session = VoiceSession(
+            session_id=session_id,
+            user_id=current_user.id,
+            messages=json.dumps([]),
+            created_at=datetime.datetime.now(datetime.timezone.utc),
+            last_seen=datetime.datetime.now(datetime.timezone.utc)
+        )
+        db.session.add(session)
+        db.session.commit()
+        return jsonify({"session_id": session_id}), 201
+
+    @app.route("/api/voice/session/<session_id>/audio", methods=["POST"])
+    @token_required
+    def voice_session_audio(current_user, session_id):
+        if "audio" not in request.files:
+            return jsonify({"error": "Audio file is required"}), 400
+
+        session = get_voice_session(session_id, current_user)
+        audio_file = request.files["audio"]
+
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp_file:
+            audio_file.save(tmp_file)
+            temp_path = tmp_file.name
+
+        try:
+            transcript = transcribe_audio(temp_path)
+        finally:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+        transcript = redact_pii(transcript)
+        session.append_message("user", transcript)
+        db.session.commit()
+
+        messages = build_voice_prompt(transcript, session.get_messages())
+
+        try:
+            assistant_text = call_ollama(messages)
+        except Exception as exc:
+            return jsonify({"error": "Failed to call Ollama", "details": str(exc)}), 502
+
+        session.append_message("assistant", assistant_text)
+        db.session.commit()
+
+        extracted = extract_form_fields_from_response(assistant_text)
+        maybe_add_risk_fields(extracted)
+
+        try:
+            audio_base64 = generate_voice_audio(assistant_text)
+        except Exception as exc:
+            return jsonify({
+                "transcript": transcript,
+                "assistant_text": assistant_text,
+                "extracted_data": extracted,
+                "warning": "TTS generation failed",
+                "audio_base64": None,
+                "error": str(exc)
+            }), 502
+
+        return jsonify({
+            "session_id": session_id,
+            "transcript": transcript,
+            "assistant_text": assistant_text,
+            "audio_base64": audio_base64,
+            "extracted_data": extracted
+        }), 200
+
+    # ------------------------------------------------------------------
+    # Auth routes
     # ------------------------------------------------------------------
 
     def _encode_token(user_id: int, role: str) -> str:

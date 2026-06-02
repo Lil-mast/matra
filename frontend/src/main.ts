@@ -8,6 +8,62 @@ import { registerSW } from 'virtual:pwa-register';
 import { auth } from './firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
+export function getApiToken() {
+    return localStorage.getItem('MATRA_API_TOKEN');
+}
+
+export function setApiToken(token: string) {
+    localStorage.setItem('MATRA_API_TOKEN', token);
+}
+
+async function backendLogin(username: string, password: string) {
+    if (!API_BASE_URL) {
+        throw new Error('Backend API base URL is not configured');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, password })
+    });
+
+    if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || 'Backend login failed');
+    }
+
+    const data = await response.json();
+    return data.token;
+}
+
+async function backendRegister(username: string, password: string) {
+    if (!API_BASE_URL) {
+        throw new Error('Backend API base URL is not configured');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, password, role: 'chw' })
+    });
+
+    if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        const error = new Error(body.error || 'Backend registration failed');
+        (error as any).status = response.status;
+        throw error;
+    }
+
+    const data = await response.json();
+    return data.token;
+}
+
 // Initialize router
 export const router = new Navigo('/');
 const appDiv = document.getElementById('app')!;
@@ -114,6 +170,12 @@ function setupLoginForm() {
         const password = (form.elements.namedItem('password') as HTMLInputElement).value;
         try {
             await signInWithEmailAndPassword(auth, email, password);
+            try {
+                const token = await backendLogin(email, password);
+                setApiToken(token);
+            } catch (backendError: any) {
+                showToast('Logged in, but backend voice auth unavailable.', true);
+            }
             showToast('Logged in successfully');
             router.navigate('/dashboard');
         } catch (error: any) {
@@ -130,6 +192,17 @@ function setupLoginForm() {
         }
         try {
             await createUserWithEmailAndPassword(auth, email, password);
+            try {
+                const token = await backendRegister(email, password);
+                setApiToken(token);
+            } catch (backendError: any) {
+                if ((backendError as any).status === 409) {
+                    const token = await backendLogin(email, password);
+                    setApiToken(token);
+                } else {
+                    showToast('Account created, but backend voice auth failed.', true);
+                }
+            }
             showToast('Account created successfully');
             router.navigate('/dashboard');
         } catch (error: any) {

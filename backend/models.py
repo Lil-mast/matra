@@ -5,6 +5,7 @@ geo-coordinates are captured.  Only the minimum fields required for clinical
 triage and aggregate reporting are persisted.
 """
 
+import json
 from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
@@ -34,6 +35,41 @@ class User(db.Model):
 
     def __repr__(self):
         return f"<User {self.username} ({self.role})>"
+
+
+class VoiceSession(db.Model):
+    """Ephemeral voice conversation sessions for the AI assistant."""
+
+    __tablename__ = "voice_sessions"
+
+    session_id = db.Column(db.String(36), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    messages = db.Column(db.Text, nullable=False, default="[]")
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    last_seen = db.Column(
+        db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+    user = db.relationship("User", backref="voice_sessions", lazy=True)
+
+    def append_message(self, role: str, content: str) -> None:
+        payload = json.loads(self.messages or "[]")
+        payload.append({"role": role, "content": content})
+        self.messages = json.dumps(payload)
+
+    def get_messages(self):
+        return json.loads(self.messages or "[]")
+
+    def to_dict(self):
+        return {
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "messages": self.get_messages(),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_seen": self.last_seen.isoformat() if self.last_seen else None,
+        }
 
 
 class MaternalIntake(db.Model):

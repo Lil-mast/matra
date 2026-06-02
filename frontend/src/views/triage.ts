@@ -1,6 +1,8 @@
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { router, showToast } from '../main';
+import { router, showToast, getApiToken } from '../main';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 // Basic client-side triage logic (mimics backend for immediate feedback)
 function evaluateRisk(data: any): { risk_level: 'high' | 'intermediate' | 'low', recommended_action: string } {
@@ -109,6 +111,23 @@ export function getTriageView() {
                     </button>
                 </div>
             </form>
+
+            <section class="mt-xl p-lg border border-outline-variant rounded-2xl bg-surface-container-lowest">
+                <div class="flex flex-col gap-md">
+                    <div class="flex flex-wrap items-center justify-between gap-4">
+                        <div>
+                            <h3 class="text-label-md font-headline-small text-on-surface">Voice Assistant</h3>
+                            <p class="text-body-sm font-body-sm text-on-surface-variant mt-1">Record patient responses and let Matra extract triage values automatically.</p>
+                        </div>
+                        <button id="voice-toggle-btn" type="button" class="px-4 py-2 bg-primary text-on-primary rounded-lg font-label-md hover:opacity-90 transition-colors">Start voice session</button>
+                    </div>
+
+                    <div id="voice-status" class="text-body-sm text-on-surface-variant">Voice session inactive.</div>
+                    <div id="voice-transcript" class="text-body-sm text-on-surface-variant"></div>
+                    <audio id="voice-response-player" controls class="w-full hidden mt-md"></audio>
+                    <div id="voice-extracted" class="grid grid-cols-2 gap-sm mt-md"></div>
+                </div>
+            </section>
         </div>
     </section>
     `;
@@ -159,6 +178,201 @@ function setupTriageForm() {
         } catch (err: any) {
             showToast('Error saving assessment', true);
             console.error(err);
+        }
+    });
+
+    setupVoiceAssistant();
+}
+
+async function setupVoiceAssistant() {
+    const voiceToggleBtn = document.getElementById('voice-toggle-btn') as HTMLButtonElement | null;
+    const voiceStatus = document.getElementById('voice-status');
+    const voiceTranscript = document.getElementById('voice-transcript');
+    const voicePlayer = document.getElementById('voice-response-player') as HTMLAudioElement | null;
+    const voiceExtracted = document.getElementById('voice-extracted');
+    if (!voiceToggleBtn || !voiceStatus || !voiceTranscript || !voicePlayer || !voiceExtracted) return;
+
+    let mediaRecorder: MediaRecorder | null = null;
+    let audioChunks: BlobPart[] = [];
+    let voiceSessionId = '';
+    let activeStream: MediaStream | null = null;
+
+    const setStatus = (text: string) => {
+        voiceStatus.textContent = text;
+    };
+
+    const setTranscript = (text: string) => {
+        voiceTranscript.textContent = text;
+    };
+
+    const setExtracted = (data: Record<string, unknown> | null) => {
+        voiceExtracted.innerHTML = '';
+        if (!data) {
+            voiceExtracted.innerHTML = '<div class="text-body-sm text-on-surface-variant">No extracted values yet.</div>';
+            return;
+        }
+
+        const fields = [
+            ['age', 'Age'],
+            ['parity', 'Parity'],
+            ['systolic_bp', 'Systolic BP'],
+            ['diastolic_bp', 'Diastolic BP'],
+            ['pulse', 'Pulse'],
+            ['bleeding', 'Bleeding'],
+            ['fever', 'Fever'],
+            ['convulsions', 'Convulsions'],
+            ['reduced_fetal_movement', 'Reduced movement'],
+            ['anemia', 'Anemia'],
+            ['risk_level', 'Risk level'],
+            ['recommended_action', 'Recommended action']
+        ];
+
+        fields.forEach(([key, label]) => {
+            if (data[key] !== undefined && data[key] !== null) {
+                voiceExtracted.insertAdjacentHTML('beforeend', `
+                    <div class="rounded-lg border border-outline-variant bg-surface p-sm">
+                        <div class="text-label-sm text-on-surface-variant">${label}</div>
+                        <div class="text-body-sm font-bold text-on-surface">${String(data[key])}</div>
+                    </div>
+                `);
+            }
+        });
+    };
+
+    const fillFormFields = (data: Record<string, unknown> | null) => {
+        if (!data) return;
+
+        const setField = (name: string, value: string | number | boolean) => {
+            const input = document.querySelector(`[name="${name}"]`) as HTMLInputElement | HTMLSelectElement | null;
+            if (!input) return;
+            if (input.type === 'checkbox') {
+                (input as HTMLInputElement).checked = Boolean(value);
+            } else {
+                input.value = String(value);
+            }
+        };
+
+        const mapping: Array<[string, string]> = [
+            ['age', 'age'],
+            ['parity', 'parity'],
+            ['systolic_bp', 'systolic_bp'],
+            ['diastolic_bp', 'diastolic_bp'],
+            ['pulse', 'pulse'],
+            ['bleeding', 'bleeding'],
+            ['fever', 'fever'],
+            ['convulsions', 'convulsions'],
+            ['reduced_fetal_movement', 'reduced_fetal_movement'],
+            ['anemia', 'anemia']
+        ];
+
+        mapping.forEach(([source, target]) => {
+            if (data[source] !== undefined) {
+                setField(target, data[source] as string | number | boolean);
+            }
+        });
+    };
+
+    const getAuthHeaders = () => {
+        const token = getApiToken();
+        const headers: Record<string, string> = {};
+        if (token) {
+            headers.Authorization = `Bearer ${token}`;
+        }
+        return headers;
+    };
+
+    const ensureVoiceSession = async () => {
+        if (!getApiToken()) {
+            throw new Error('Voice assistant requires backend authentication. Please login again.');
+        }
+        if (voiceSessionId) return voiceSessionId;
+        const response = await fetch(`${API_BASE_URL}/api/voice/session`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            throw new Error('Unable to create voice session');
+        }
+        const payload = await response.json();
+        voiceSessionId = payload.session_id;
+        return voiceSessionId;
+    };
+
+    const createAudioUrl = (base64: string) => {
+        const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+        return URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+        }
+        if (activeStream) {
+            activeStream.getTracks().forEach((track) => track.stop());
+            activeStream = null;
+        }
+    };
+
+    voiceToggleBtn.addEventListener('click', async () => {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            setStatus('Stopping recording...');
+            stopRecording();
+            voiceToggleBtn.textContent = 'Start voice session';
+            return;
+        }
+
+        try {
+            await ensureVoiceSession();
+            setStatus('Listening for patient audio...');
+            audioChunks = [];
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            activeStream = stream;
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = (event) => {
+                audioChunks.push(event.data);
+            };
+            mediaRecorder.onstop = async () => {
+                setStatus('Sending audio for transcription...');
+                const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                const formData = new FormData();
+                formData.append('audio', blob, 'voice.webm');
+
+                const response = await fetch(`${API_BASE_URL}/api/voice/session/${voiceSessionId}/audio`, {
+                    method: 'POST',
+                    headers: {
+                        ...getAuthHeaders()
+                    },
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => null);
+                    setStatus('Voice request failed.');
+                    showToast(error?.error || 'Voice request failed', true);
+                    return;
+                }
+
+                const data = await response.json();
+                setStatus('Voice response received.');
+                setTranscript(`Transcript: ${data.transcript}`);
+                setExtracted(data.extracted_data ?? null);
+                fillFormFields(data.extracted_data ?? null);
+
+                if (data.audio_base64) {
+                    voicePlayer.src = createAudioUrl(data.audio_base64);
+                    voicePlayer.classList.remove('hidden');
+                    voicePlayer.play().catch(() => {
+                        /* ignore playback policy errors */
+                    });
+                }
+
+                voiceToggleBtn.textContent = 'Start voice session';
+            };
+            mediaRecorder.start();
+            voiceToggleBtn.textContent = 'Stop recording';
+        } catch (err: any) {
+            setStatus('Unable to start voice session.');
+            showToast(err.message || 'Microphone access denied', true);
         }
     });
 }

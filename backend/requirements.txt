@@ -14,3 +14,5 @@ gunicorn==23.0.0
 python-dotenv==1.0.0
 streamlit==1.41.0
 plotly==5.18.0
+requests==2.32.0
+faster-whisper==0.10.0

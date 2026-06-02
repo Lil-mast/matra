@@ -2,10 +2,11 @@ import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  base: '/',
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'assets/logo.png'],
+      includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Matra Health',
         short_name: 'Matra',
@@ -28,5 +29,10 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg}']
       }
     })
-  ]
+  ],
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    assetsDir: 'assets'
+  }
 })
