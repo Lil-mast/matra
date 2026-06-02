@@ -1,0 +1,17 @@
+*
+!dist/
+!dist/**
+
+# keep manifest and package metadata (if needed by CI)
+!package.json
+!pnpm-lock.yaml
+!package-lock.json
+!package-lock.json
+!pnpm-lock.yaml
+
+# ignore node modules and source
+node_modules/
+src/
+public/
+.git/
+.github/

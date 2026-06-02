@@ -1,0 +1,12 @@
+name = "matra-frontend"
+compatibility_date = "2026-06-02"
+type = "javascript"
+
+[site]
+bucket = "./dist"
+entry-point = "workers-site"
+
+# When using `wrangler` to upload assets, this config instructs Wrangler
+# to only upload the `dist` folder produced by `npm run build`.
+
+pages_build_output_dir = "./dist"

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "pnpm run build && npx wrangler pages deploy ./dist --project-name=matra-frontend --commit-dirty=true",
+    "deploy:wrangler": "pnpm run build && npx wrangler deploy --site ./dist --commit-dirty=true"
   },
   "devDependencies": {
     "typescript": "~6.0.2",

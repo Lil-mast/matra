@@ -19,14 +19,32 @@ This guide prepares the Matra frontend for deployment to Cloudflare Pages.
 
 3. The production output is generated in `frontend/dist`.
 
-## Cloudflare Pages Configuration
+## Cloudflare Pages / Workers Configuration
 
-Use the following settings in Cloudflare Pages:
+If you're using **Cloudflare Pages** (recommended for static sites) use these settings:
 
 - Build command: `npm run build`
 - Build directory: `dist`
 - Framework preset: `None` or `Vite`
 - Root directory: `/frontend`
+
+If your pipeline uses `wrangler` (Workers or Workers Sites) make sure Wrangler only uploads the production build rather than the entire repo. Two easy options:
+
+- Add a `wrangler.toml` at `frontend/wrangler.toml` with `site.bucket = "./dist"` (this repo already includes one).
+- Add a `.wranglerignore` in the frontend directory to exclude `src`, `node_modules`, `public`, and other large folders (this repo already includes one). This prevents Wrangler from attempting to upload tens of thousands of source files and hitting the 20,000 asset limit.
+
+Recommended CI/Deploy command (ensures only `dist` is uploaded):
+
+```bash
+# from repository root or inside frontend/
+pnpm run build
+npx wrangler pages publish ./dist --project-name=matra-frontend
+```
+
+Notes:
+- Cloudflare's Workers asset upload will fail when the manifest contains more than 20,000 files unless you are on a paid plan. Only upload `dist` to avoid this.
+- If you're using Pages, you don't need `wrangler` at all — set the Pages build command to `npm run build` so Pages uploads only the `dist` directory.
+- The `npx wrangler versions upload` invocation seen in CI uploads the entire working directory as assets unless configured to target `dist`; use `wrangler pages publish ./dist` (or the Pages UI) to avoid the asset limit.
 
 ## Client-Side Routing
 
