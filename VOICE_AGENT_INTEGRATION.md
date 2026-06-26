@@ -98,3 +98,6 @@ audio_stream = generate(
   - `VOICE_STT_DEVICE`
   - `ELEVENLABS_API_KEY`
   - `ELEVENLABS_VOICE_ID`
+
+
+ELEVEN LABS IS AWESOMEEEE!!!
