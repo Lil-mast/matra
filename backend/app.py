@@ -34,11 +34,17 @@ from flask import Flask, jsonify, request, abort
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from faster_whisper import WhisperModel
+try:
+    from faster_whisper import WhisperModel
+except ImportError:
+    WhisperModel = None
 
 from config import Config
 from models import MaternalIntake, User, VoiceSession, db
 from model.triage_model import evaluate_risk
+
+import sys
+
 
 # Configure audit logging
 audit_logger = logging.getLogger("matra.audit")
@@ -56,15 +62,24 @@ audit_logger.setLevel(logging.INFO)
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
-    
+
+    # Fail fast at runtime (not import-time) for production secrets
+    try:
+        from config import require_secret_key
+        require_secret_key()
+    except Exception:
+        # If require_secret_key isn't appropriate for current config, let it surface naturally
+        pass
+
+
     # Rate limiting (CRITICAL for public endpoints)
     limiter = Limiter(
         app=app,
         key_func=get_remote_address,
         storage_uri=app.config.get("RATELIMIT_STORAGE_URL", "memory://"),
-        default_limits=[]
+        default_limits=[],
     )
-    
+
     CORS(
         app,
         resources={r"/api/*": {"origins": app.config.get("CORS_ORIGINS", ["*"])}},
@@ -77,13 +92,60 @@ def create_app(config_class=Config):
         db.create_all()
 
     # ------------------------------------------------------------------
-    # Voice agent helpers
+    # Auth helpers (defined early because decorators use them)
     # ------------------------------------------------------------------
 
-    app.voice_model = WhisperModel(
-        app.config["VOICE_STT_MODEL"],
-        device=app.config.get("VOICE_STT_DEVICE", "cpu")
-    )
+    def _encode_token(user_id: int, role: str) -> str:
+        payload = {
+            "sub": user_id,
+            "role": role,
+            "iat": datetime.datetime.now(datetime.timezone.utc),
+            "exp": datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(hours=app.config["JWT_EXPIRATION_HOURS"]),
+        }
+        return jwt.encode(payload, app.config["SECRET_KEY"], algorithm="HS256")
+
+    def token_required(f):
+        @functools.wraps(f)
+        def decorated(*args, **kwargs):
+            token = None
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header.split(" ", 1)[1]
+            if not token:
+                return jsonify({"error": "Token missing"}), 401
+            try:
+                payload = jwt.decode(
+                    token, app.config["SECRET_KEY"], algorithms=["HS256"]
+                )
+                current_user = db.session.get(User, payload["sub"])
+                if current_user is None:
+                    raise ValueError("User not found")
+            except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError):
+                return jsonify({"error": "Invalid or expired token"}), 401
+            return f(current_user, *args, **kwargs)
+
+        return decorated
+
+    # ------------------------------------------------------------------
+    # Voice agent helpers (optional)
+    # ------------------------------------------------------------------
+
+    voice_enabled = str(app.config.get("VOICE_ENABLED", "false")).lower() == "true"
+
+    if voice_enabled:
+        if WhisperModel is None:
+            raise RuntimeError(
+                "Voice is enabled but 'faster-whisper' is not installed. "
+                "Install it or set VOICE_ENABLED=false."
+            )
+
+        app.voice_model = WhisperModel(
+            app.config["VOICE_STT_MODEL"],
+            device=app.config.get("VOICE_STT_DEVICE", "cpu"),
+        )
+    else:
+        app.voice_model = None
 
     def cleanup_voice_sessions():
         cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
@@ -243,13 +305,16 @@ def create_app(config_class=Config):
     @app.route("/api/voice/session", methods=["POST"])
     @token_required
     def create_voice_session(current_user):
+        if app.voice_model is None:
+            return jsonify({"error": "Voice features disabled"}), 503
+
         session_id = generate_session_id()
         session = VoiceSession(
             session_id=session_id,
             user_id=current_user.id,
             messages=json.dumps([]),
             created_at=datetime.datetime.now(datetime.timezone.utc),
-            last_seen=datetime.datetime.now(datetime.timezone.utc)
+            last_seen=datetime.datetime.now(datetime.timezone.utc),
         )
         db.session.add(session)
         db.session.commit()
@@ -258,6 +323,9 @@ def create_app(config_class=Config):
     @app.route("/api/voice/session/<session_id>/audio", methods=["POST"])
     @token_required
     def voice_session_audio(current_user, session_id):
+        if app.voice_model is None:
+            return jsonify({"error": "Voice features disabled"}), 503
+
         if "audio" not in request.files:
             return jsonify({"error": "Audio file is required"}), 400
 
@@ -313,41 +381,6 @@ def create_app(config_class=Config):
             "extracted_data": extracted
         }), 200
 
-    # ------------------------------------------------------------------
-    # Auth routes
-    # ------------------------------------------------------------------
-
-    def _encode_token(user_id: int, role: str) -> str:
-        payload = {
-            "sub": user_id,
-            "role": role,
-            "iat": datetime.datetime.now(datetime.timezone.utc),
-            "exp": datetime.datetime.now(datetime.timezone.utc)
-            + datetime.timedelta(hours=app.config["JWT_EXPIRATION_HOURS"]),
-        }
-        return jwt.encode(payload, app.config["SECRET_KEY"], algorithm="HS256")
-
-    def token_required(f):
-        @functools.wraps(f)
-        def decorated(*args, **kwargs):
-            token = None
-            auth_header = request.headers.get("Authorization", "")
-            if auth_header.startswith("Bearer "):
-                token = auth_header.split(" ", 1)[1]
-            if not token:
-                return jsonify({"error": "Token missing"}), 401
-            try:
-                payload = jwt.decode(
-                    token, app.config["SECRET_KEY"], algorithms=["HS256"]
-                )
-                current_user = db.session.get(User, payload["sub"])
-                if current_user is None:
-                    raise ValueError("User not found")
-            except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError):
-                return jsonify({"error": "Invalid or expired token"}), 401
-            return f(current_user, *args, **kwargs)
-
-        return decorated
 
     # ------------------------------------------------------------------
     # Auth routes

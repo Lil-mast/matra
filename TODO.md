@@ -1,0 +1,9 @@
+- [ ] Inspect current backend entrypoints and identify Render deployment issues
+- [ ] Fix backend import robustness for Render (config/models imports)
+- [ ] Fix Flask voice endpoint startup (token_required decorator ordering)
+- [ ] Make voice features optional so backend can deploy without faster-whisper
+- [ ] Fix Streamlit admin dashboard imports so it runs in different workdirs
+- [ ] Add Render deployment config (Procfile) for gunicorn
+- [ ] Add/adjust any missing backend APIs to match frontend expectations (auth + voice endpoints)
+- [ ] Smoke test backend locally (health, auth, assess, sync, metrics/referrals)
+- [ ] Run backend unit tests (pytest)

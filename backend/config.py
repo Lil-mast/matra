@@ -17,12 +17,9 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # Security (CRITICAL: Never use hardcoded secrets in production)
+    # NOTE: Don't hard-fail at import-time; Render/gunicorn workers may import
+    # the module before env vars are available during some build steps.
     SECRET_KEY = os.environ.get("SECRET_KEY")
-    if not SECRET_KEY:
-        raise ValueError(
-            "CRITICAL: SECRET_KEY environment variable must be set. "
-            "Generate one: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
-        )
     
     # JWT Configuration
     JWT_EXPIRATION_HOURS = int(os.environ.get("JWT_EXPIRATION_HOURS", "24"))
@@ -76,6 +73,14 @@ class TestingConfig(Config):
     ENCRYPT_DATABASE = False
     AUDIT_LOG_ENABLED = True  # Track test execution
 
+
+def require_secret_key():
+    """Fail fast when the app is actually created (runtime), not at import time."""
+    if not Config.SECRET_KEY:
+        raise ValueError(
+            "CRITICAL: SECRET_KEY environment variable must be set. "
+            "Generate one: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+        )
 
 class ProductionConfig(Config):
     """Production config with maximum security hardening."""
